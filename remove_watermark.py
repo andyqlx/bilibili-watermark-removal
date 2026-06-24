@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-B站视频去水印工具 - v9-improved
-Adaptive threshold + tight rectangles + NS inpainting
+B站视频去水印工具 - v9
+Adaptive threshold + component rectangles + NS inpainting
 
 用法:
     python3 remove_watermark.py input.mp4 output.mp4
@@ -36,7 +36,6 @@ def remove_watermark(input_path, output_path):
         ret, f = cap.read()
         if not ret:
             continue
-        # 水印区域：右上角 460x130
         r = f[0:130, w - 460 : w].astype(np.float32)
         max_frame = r if max_frame is None else np.maximum(max_frame, r)
 
@@ -48,27 +47,22 @@ def remove_watermark(input_path, output_path):
     )
     inverted = 255 - binary
 
-    # Step 3: 连通域过滤，用紧贴矩形（pad=0）
+    # Step 3: 连通域过滤，组件矩形 (pad=5)
     n_labels, labels, stats, _ = cv2.connectedComponentsWithStats(
         inverted, connectivity=8
     )
     mask = np.zeros((130, 460), dtype=np.uint8)
     kept = 0
+    pad = 5
     for i in range(1, n_labels):
         area = stats[i, cv2.CC_STAT_AREA]
         x = stats[i, cv2.CC_STAT_LEFT]
-        # 过滤条件：面积适中、不在左边缘
         if 80 < area < 15000 and x > 5:
-            cv2.rectangle(
-                mask,
-                (stats[i, cv2.CC_STAT_LEFT], stats[i, cv2.CC_STAT_TOP]),
-                (
-                    stats[i, cv2.CC_STAT_LEFT] + stats[i, cv2.CC_STAT_WIDTH],
-                    stats[i, cv2.CC_STAT_TOP] + stats[i, cv2.CC_STAT_HEIGHT],
-                ),
-                255,
-                -1,
-            )
+            x1 = max(0, stats[i, cv2.CC_STAT_LEFT] - pad)
+            y1 = max(0, stats[i, cv2.CC_STAT_TOP] - pad)
+            x2 = min(460, x1 + stats[i, cv2.CC_STAT_WIDTH] + 2 * pad)
+            y2 = min(130, y1 + stats[i, cv2.CC_STAT_HEIGHT] + 2 * pad)
+            cv2.rectangle(mask, (x1, y1), (x2, y2), 255, -1)
             kept += 1
 
     pct = 100 * np.sum(mask > 0) / mask.size
